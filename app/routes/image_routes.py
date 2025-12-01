@@ -31,7 +31,8 @@ async def edit_images(request: ImageEditRequest):
         # 이미지 처리 서비스 호출
         result_image = await image_service.edit_images(
             image1_url=request.image1_url,
-            image2_url=request.image2_url
+            image2_url=request.image2_url,
+            custom_prompt=request.custom_prompt
         )
         
         if result_image:
@@ -86,7 +87,8 @@ async def preview_images(request: ImageEditRequest):
         # 이미지 처리 서비스 호출
         result_image = await image_service.edit_images(
             image1_url=request.image1_url,
-            image2_url=request.image2_url
+            image2_url=request.image2_url,
+            custom_prompt=request.custom_prompt
         )
         
         if result_image:
@@ -135,7 +137,8 @@ async def preview_image_direct(request: ImageEditRequest):
         # 이미지 처리 서비스 호출
         result_image = await image_service.edit_images(
             image1_url=request.image1_url,
-            image2_url=request.image2_url
+            image2_url=request.image2_url,
+            custom_prompt=request.custom_prompt
         )
         
         if result_image:
