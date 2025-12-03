@@ -123,3 +123,51 @@ curl -X POST "http://localhost:8000/api/v1/edit" \
 - 지원 파일 형식: JPEG, PNG
 - 최대 파일 크기: 10MB
 - OpenAI API 키 필요
+
+## 타임아웃 설정
+
+이미지 생성은 시간이 오래 걸릴 수 있습니다 (최대 2-3분). 프론트엔드에서 API 호출 시 타임아웃 설정을 충분히 길게 해주세요.
+
+### 프론트엔드 타임아웃 설정 예시
+
+**fetch API:**
+
+```javascript
+const controller = new AbortController();
+const timeoutId = setTimeout(() => controller.abort(), 300000); // 5분
+
+try {
+  const response = await fetch("/api/v1/cartoonize", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+    signal: controller.signal,
+  });
+  clearTimeout(timeoutId);
+} catch (error) {
+  if (error.name === "AbortError") {
+    console.log("요청 타임아웃");
+  }
+}
+```
+
+**axios:**
+
+```javascript
+axios.post("/api/v1/cartoonize", data, {
+  timeout: 300000, // 5분
+});
+```
+
+**Next.js fetch:**
+
+```javascript
+const response = await fetch("/api/v1/cartoonize", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(data),
+  next: { revalidate: 0 },
+  cache: "no-store",
+  signal: AbortSignal.timeout(300000), // 5분
+});
+```

@@ -1,13 +1,23 @@
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse, Response
-from app.models.schemas import ImageEditRequest, ImageEditResponse, ImagePreviewResponse
+from app.models.schemas import (
+    ImageEditRequest, ImageEditResponse, ImagePreviewResponse,
+    CartoonizeRequest, CartoonizeResponse, TimingInfo
+)
 from app.services.image_service import ImageService
+from app.services.async_job_service import async_job_service
 import os
 import tempfile
 import base64
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+import threading
 
 router = APIRouter(prefix="/api/v1", tags=["images"])
 image_service = ImageService()
+
+# 백그라운드 작업용 스레드 풀 (최대 3개 동시 작업)
+executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="cartoonize")
 
 @router.post("/edit", response_model=ImageEditResponse)
 async def edit_images(request: ImageEditRequest):
@@ -157,8 +167,111 @@ async def preview_image_direct(request: ImageEditRequest):
             return Response(content=image_bytes, media_type="image/png")
         else:
             raise HTTPException(status_code=400, detail="이미지 생성에 실패했습니다. 프롬프트나 이미지를 확인해주세요.")
-            
+
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"서버 오류가 발생했습니다: {str(e)}")
+
+@router.post("/cartoonize")
+async def cartoonize_image(request: CartoonizeRequest):
+    """
+    비동기 이미지 생성 - 즉시 응답하고 백그라운드에서 처리
+    
+    프론트엔드 플로우에 맞춘 API:
+    1. 이 API 호출 → 즉시 success 응답 (API Gateway 타임아웃 회피)
+    2. 백그라운드에서 이미지 생성 시작
+    3. 완료되면 Supabase image 테이블의 result 컬럼에 결과 URL 저장
+    4. 프론트엔드는 job_id로 DB 폴링하여 result 확인
+
+    - **image_url**: 첫 번째 이미지 (얼굴 이미지 URL)
+    - **character_id**: 캐릭터 ID (두 번째 이미지를 Supabase에서 가져오기 위한 ID)
+    - **custom_prompt**: 포즈 묘사 (선택사항)
+    - **job_id**: 작업 ID (필수 - 프론트엔드에서 생성한 job_id)
+    """
+    try:
+        if not request.job_id:
+            raise HTTPException(status_code=400, detail="job_id는 필수입니다.")
+        
+        # 백그라운드 작업을 별도 스레드에서 실행 (GIL 블로킹 방지)
+        loop = asyncio.get_event_loop()
+        loop.run_in_executor(
+            executor,
+            process_cartoonize_background_sync,
+            request.job_id,
+            str(request.image_url),
+            request.character_id,
+            request.custom_prompt
+        )
+        
+        # 즉시 응답 (API Gateway 29초 타임아웃 회피)
+        return {
+            "success": True,
+            "job_id": request.job_id,
+            "message": "이미지 생성이 시작되었습니다. job_id로 결과를 확인하세요."
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"서버 오류가 발생했습니다: {str(e)}")
+
+def process_cartoonize_background_sync(
+    job_id: str,
+    image_url: str,
+    character_id: str,
+    custom_prompt: str = None
+):
+    """
+    백그라운드에서 실제 이미지 생성 작업 수행 (동기 버전 - 별도 스레드에서 실행)
+    완료되면 Supabase DB의 image 테이블에 result 업데이트
+    """
+    try:
+        print(f"[Background Job {job_id}] 이미지 생성 시작... (스레드: {threading.current_thread().name})")
+        
+        # 실제 이미지 생성 (동기 버전)
+        # asyncio.run()을 사용하여 async 함수를 동기적으로 실행
+        result = asyncio.run(image_service.cartoonize_with_character(
+            image_url=image_url,
+            character_id=character_id,
+            custom_prompt=custom_prompt
+        ))
+        
+        if result['success']:
+            print(f"[Background Job {job_id}] 이미지 생성 완료: {result['result_image_url']}")
+            
+            # Supabase DB 업데이트 (result 컬럼만 업데이트)
+            if image_service.supabase:
+                try:
+                    update_result = image_service.supabase.table("image").update({
+                        "result": result['result_image_url']
+                    }).eq("job_id", job_id).execute()
+                    
+                    print(f"[Background Job {job_id}] DB 업데이트 완료")
+                except Exception as db_error:
+                    print(f"[Background Job {job_id}] DB 업데이트 실패: {db_error}")
+        else:
+            print(f"[Background Job {job_id}] 이미지 생성 실패: {result.get('error')}")
+            
+            # 실패 시에도 result에 에러 메시지 저장 (프론트엔드가 폴링으로 확인)
+            if image_service.supabase:
+                try:
+                    image_service.supabase.table("image").update({
+                        "result": f"ERROR: {result.get('error', '알 수 없는 오류')}"
+                    }).eq("job_id", job_id).execute()
+                    print(f"[Background Job {job_id}] 에러 상태 DB 업데이트 완료")
+                except Exception as db_error:
+                    print(f"[Background Job {job_id}] DB 업데이트 실패: {db_error}")
+                    
+    except Exception as e:
+        print(f"[Background Job {job_id}] 예외 발생: {str(e)}")
+        
+        # 에러 발생 시 result에 에러 메시지 저장
+        if image_service.supabase:
+            try:
+                image_service.supabase.table("image").update({
+                    "result": f"ERROR: {str(e)}"
+                }).eq("job_id", job_id).execute()
+                print(f"[Background Job {job_id}] 예외 상태 DB 업데이트 완료")
+            except Exception as db_error:
+                print(f"[Background Job {job_id}] DB 업데이트 실패: {db_error}")

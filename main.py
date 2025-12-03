@@ -42,4 +42,11 @@ async def health_v1():
     return {"status": "healthy", "message": "Image Edit API is running"}
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(
+        "main:app", 
+        host="0.0.0.0", 
+        port=8000, 
+        reload=True,
+        timeout_keep_alive=300,  # 5분으로 연결 유지 시간 증가
+        timeout_graceful_shutdown=30  # graceful shutdown 시간
+    )

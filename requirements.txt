@@ -5,3 +5,4 @@ openai>=1.59.0
 httpx
 python-dotenv==1.0.0
 pydantic==2.5.0
+supabase>=2.0.0
