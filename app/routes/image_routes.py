@@ -201,7 +201,8 @@ async def cartoonize_image(request: CartoonizeRequest):
             request.job_id,
             str(request.image_url),
             request.character_id,
-            request.custom_prompt
+            request.custom_prompt,
+            request.regeneration_count
         )
         
         # 즉시 응답 (API Gateway 29초 타임아웃 회피)
@@ -220,7 +221,8 @@ def process_cartoonize_background_sync(
     job_id: str,
     image_url: str,
     character_id: str,
-    custom_prompt: str = None
+    custom_prompt: str = None,
+    regeneration_count: int = 2
 ):
     """
     백그라운드에서 실제 이미지 생성 작업 수행 (동기 버전 - 별도 스레드에서 실행)
@@ -240,14 +242,29 @@ def process_cartoonize_background_sync(
         if result['success']:
             print(f"[Background Job {job_id}] 이미지 생성 완료: {result['result_image_url']}")
             
-            # Supabase DB 업데이트 (result 컬럼만 업데이트)
+            # regeneration_count에 따라 적절한 컴럼 선택
+            # count = 2: result (초기 생성)
+            # count = 1: result_add1 (첫 번째 재생성)
+            # count = 0: result_add2 (두 번째 재생성)
+            if regeneration_count == 2:
+                target_column = "result"
+            elif regeneration_count == 1:
+                target_column = "result_add1"
+            elif regeneration_count == 0:
+                target_column = "result_add2"
+            else:
+                target_column = "result"  # 기본값
+            
+            print(f"[Background Job {job_id}] regeneration_count={regeneration_count}, target_column={target_column}")
+            
+            # Supabase DB 업데이트 (적절한 컴럼에 업데이트)
             if image_service.supabase:
                 try:
                     update_result = image_service.supabase.table("image").update({
-                        "result": result['result_image_url']
+                        target_column: result['result_image_url']
                     }).eq("job_id", job_id).execute()
                     
-                    print(f"[Background Job {job_id}] DB 업데이트 완료")
+                    print(f"[Background Job {job_id}] DB 업데이트 완료 (column: {target_column})")
                 except Exception as db_error:
                     print(f"[Background Job {job_id}] DB 업데이트 실패: {db_error}")
         else:

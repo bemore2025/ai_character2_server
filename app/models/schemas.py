@@ -23,6 +23,7 @@ class CartoonizeRequest(BaseModel):
     character_id: str  # 캐릭터 ID (두 번째 이미지를 가져오기 위한 ID)
     custom_prompt: Optional[str] = None  # 포즈 묘사
     job_id: Optional[str] = None
+    regeneration_count: Optional[int] = 2  # 재생성 횟수 (2: 초기, 1: 첫 번째 재생성, 0: 두 번째 재생성)
 
 class TimingInfo(BaseModel):
     character_image_fetch: Optional[float] = None
