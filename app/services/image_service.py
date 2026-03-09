@@ -32,22 +32,12 @@ class ImageService:
             return None
 
     def get_random_character_image(self, character_id: str) -> Optional[str]:
-        """
-        character_id를 이용해 character 테이블에서 picture_cartoon 중 랜덤한 이미지 URL을 반환합니다.
-
-        Args:
-            character_id (str): 찾을 캐릭터의 ID
-
-        Returns:
-            str: 랜덤하게 선택된 이미지 URL
-            None: 에러가 발생하거나 데이터가 없는 경우
-        """
+        """character_id를 이용해 character 테이블에서 picture_cartoon 중 랜덤한 이미지 URL을 반환합니다."""
         try:
             if not self.supabase:
                 print("[ERROR] Supabase 클라이언트가 초기화되지 않았습니다.")
                 return None
 
-            # character 테이블에서 해당 ID의 picture_cartoon 가져오기
             response = self.supabase.table("character").select("picture_cartoon").eq("id", character_id).execute()
 
             if not response.data:
@@ -60,13 +50,10 @@ class ImageService:
                 print(f"[ERROR] 캐릭터 ID {character_id}의 picture_cartoon이 비어있거나 올바르지 않습니다.")
                 return None
 
-            # 리스트에서 랜덤하게 하나 선택
             random_item = random.choice(picture_cartoon)
 
-            # 딕셔너리 형태인 경우 url 키의 값을 추출
             if isinstance(random_item, dict) and 'url' in random_item:
                 return random_item['url']
-            # 문자열인 경우 그대로 반환
             elif isinstance(random_item, str):
                 return random_item
             else:
@@ -78,49 +65,32 @@ class ImageService:
             return None
 
     def upload_image_to_supabase(self, image_data: bytes, file_name: str = None) -> Optional[str]:
-        """
-        이미지 데이터를 Supabase 스토리지에 업로드하고 공개 URL을 반환합니다.
-
-        Args:
-            image_data (bytes): 업로드할 이미지 데이터
-            file_name (str): 파일명 (None인 경우 UUID로 생성)
-
-        Returns:
-            str: 업로드된 이미지의 공개 URL
-            None: 에러가 발생한 경우
-        """
+        """이미지 데이터를 Supabase 스토리지에 업로드하고 공개 URL을 반환합니다."""
         try:
             if not self.supabase:
                 print("[ERROR] Supabase 클라이언트가 초기화되지 않았습니다.")
                 return None
 
-            # 파일명 생성
             if not file_name:
                 file_name = f"cartoon_{uuid.uuid4().hex}.png"
 
             print(f"[DEBUG] Supabase에 이미지 업로드 중: {file_name}")
 
-            # 버킷명
             bucket_name = "images"
 
-            # 이미지 업로드
             upload_response = self.supabase.storage.from_(bucket_name).upload(
                 path=file_name,
                 file=image_data,
                 file_options={"content-type": "image/png"}
             )
 
-            # Supabase storage 응답 확인
             if hasattr(upload_response, 'error') and upload_response.error:
                 print(f"[ERROR] 업로드 실패: {upload_response.error}")
                 return None
             else:
                 print(f"[DEBUG] 이미지 업로드 성공: {file_name}")
-
-                # 공개 URL 생성
                 public_url = self.supabase.storage.from_(bucket_name).get_public_url(file_name)
                 print(f"[DEBUG] 공개 URL: {public_url}")
-
                 return public_url
 
         except Exception as e:
@@ -131,7 +101,6 @@ class ImageService:
         """URL, data URL, 또는 순수 base64 문자열을 이미지 바이트로 변환"""
         s = (image_url or "").strip()
 
-        # data URL 처리
         if s.startswith('data:'):
             print(f"[DEBUG] Base64 data URL 감지, 디코딩 시작")
             base64_data = s.split(',', 1)[1] if ',' in s else s
@@ -143,7 +112,6 @@ class ImageService:
             except Exception as _:
                 print(f"[DEBUG] Base64 data URL 디코딩 실패, 다른 방식 시도")
 
-        # 순수 base64 문자열 처리 (스킴이 없고, 길고, base64 문자셋으로만 구성)
         if '://' not in s:
             s_clean = s.replace('\n', '').replace('\r', '')
             if len(s_clean) > 1000 and re.fullmatch(r'[A-Za-z0-9+/=_-]+', s_clean) is not None:
@@ -152,7 +120,6 @@ class ImageService:
                     try:
                         decoded = base64.b64decode(s_clean, validate=True)
                     except Exception:
-                        # URL-safe base64 대응 및 패딩 보정
                         padded = s_clean + '=' * ((4 - len(s_clean) % 4) % 4)
                         decoded = base64.urlsafe_b64decode(padded)
                     print(f"[DEBUG] 순수 base64 디코딩 완료: {len(decoded)} bytes")
@@ -160,30 +127,27 @@ class ImageService:
                 except Exception as _:
                     print(f"[DEBUG] 순수 base64 디코딩 실패, URL로 처리 시도")
 
-        # 일반 URL 다운로드
         print(f"[DEBUG] 일반 URL 다운로드 시작: {s}")
         async with httpx.AsyncClient() as client:
             response = await client.get(s, timeout=30.0)
             response.raise_for_status()
             print(f"[DEBUG] URL 다운로드 완료: {len(response.content)} bytes")
             return response.content
-    
+
     def create_file(self, file_content: bytes, filename: str) -> str:
         """OpenAI에 파일 업로드하고 file_id 반환"""
         import tempfile
-        
-        # URL 쿼리 파라미터 제거 (예: image.png? -> image.png)
+
         filename = filename.split('?')[0]
-        
+
         print(f"[DEBUG] create_file 호출: filename={filename}, size={len(file_content)} bytes")
-        
-        # 파일 내용을 임시 파일로 저장
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(filename)[1]) as temp_file:
             temp_file.write(file_content)
             temp_file_path = temp_file.name
-        
+
         print(f"[DEBUG] 임시 파일 생성: {temp_file_path}")
-        
+
         try:
             with open(temp_file_path, "rb") as f:
                 print(f"[DEBUG] Files API 호출 시작")
@@ -194,10 +158,9 @@ class ImageService:
                 print(f"[DEBUG] Files API 호출 완료: file_id={result.id}")
                 return result.id
         finally:
-            # 임시 파일 삭제
             os.unlink(temp_file_path)
             print(f"[DEBUG] 임시 파일 삭제 완료")
-    
+
     async def edit_images(self, image1_url: str, image2_url: str, custom_prompt: Optional[str] = None) -> Optional[str]:
         """두 이미지를 1단계로 합성 (gpt-image-1.5, 속도 최적화)"""
         try:
@@ -268,30 +231,13 @@ class ImageService:
             import traceback
             print(traceback.format_exc())
             return None
-```
-
----
-
-**⑤ 붙여넣기 후 344번 줄이 빈 줄, 345번 줄이 `async def cartoonize_with_character` 이면 정상입니다.**
-
-**⑥ 화면 오른쪽 위 초록색 "Commit changes" 버튼 클릭**
-```
-Commit message 입력:
-feat: gpt-image-1.5 모델 교체 및 속도 개선 (2단계→1단계)
 
     async def cartoonize_with_character(self, image_url: str, character_id: str, custom_prompt: Optional[str] = None):
         """
-        target.py와 동일한 구조의 캐릭터 이미지 합성 함수
+        캐릭터 이미지 합성 함수
         1. character_id로 캐릭터 이미지 URL 가져오기
-        2. 기존 edit_images 함수로 이미지 합성 (2단계: 얼굴+화풍, 포즈변경)
-        3. 결과 이미지를 Supabase에 업로드
-
-        Returns:
-            dict: {
-                'result_image_url': str (Supabase URL),
-                'character_image_url': str,
-                'timing': dict
-            }
+        2. edit_images 함수로 이미지 합성
+        3. Supabase 저장 없이 OpenAI URL 바로 반환 (용량 절감)
         """
         import time
 
@@ -323,8 +269,7 @@ feat: gpt-image-1.5 모델 교체 및 속도 개선 (2단계→1단계)
 
             print(f"[DEBUG] 1단계 완료 (소요시간: {timing['character_image_fetch']}초)")
 
-            # 2단계: 기존 edit_images 함수로 이미지 합성
-            # (내부적으로 2단계로 나뉘어 처리됨: 얼굴+화풍 합성, 포즈 변경)
+            # 2단계: 이미지 합성
             step_start = time.time()
             print(f"[DEBUG] 2단계: 이미지 합성 시작 (image1={image_url}, image2={character_image_url})")
             result_image_url = await self.edit_images(
@@ -334,7 +279,6 @@ feat: gpt-image-1.5 모델 교체 및 속도 개선 (2단계→1단계)
             )
             total_generation_time = round(time.time() - step_start, 2)
 
-            # edit_images가 2단계로 처리되므로 전체 생성 시간을 기록
             timing['step1_generation'] = total_generation_time / 2 if custom_prompt else total_generation_time
             timing['step2_generation'] = total_generation_time / 2 if custom_prompt else None
 
@@ -351,37 +295,13 @@ feat: gpt-image-1.5 모델 교체 및 속도 개선 (2단계→1단계)
             print(f"[DEBUG] 2단계 완료 (소요시간: {total_generation_time}초)")
             print(f"[DEBUG] 결과 이미지 URL 시작 부분: {result_image_url[:100]}...")
 
-            # 3단계: 결과 이미지를 Supabase에 업로드
-            step_start = time.time()
-            print(f"[DEBUG] 3단계: 결과 이미지를 Supabase에 업로드 중...")
-
-            # 결과 이미지 다운로드
-            result_image_data = await self.download_image(result_image_url)
-
-            # Supabase에 업로드
-            file_name = f"cartoon_result_{uuid.uuid4().hex}.png"
-            supabase_url = self.upload_image_to_supabase(result_image_data, file_name)
-
-            timing['image_upload'] = round(time.time() - step_start, 2)
+            # Supabase 저장 없이 OpenAI URL 바로 반환 (용량 절감)
             timing['total_time'] = round(time.time() - start_time, 2)
-
-            if not supabase_url:
-                print(f"[WARNING] Supabase 업로드 실패, 원본 URL 반환")
-                # Supabase 업로드 실패해도 원본 URL은 반환
-                return {
-                    'success': True,
-                    'result_image_url': result_image_url,  # 원본 OpenAI URL
-                    'character_image_url': character_image_url,
-                    'timing': timing,
-                    'warning': 'Supabase 업로드 실패, OpenAI URL 반환'
-                }
-
-            print(f"[DEBUG] 3단계 완료 (소요시간: {timing['image_upload']}초)")
             print(f"[DEBUG] 전체 완료! 총 소요시간: {timing['total_time']}초")
 
             return {
                 'success': True,
-                'result_image_url': supabase_url,  # Supabase URL
+                'result_image_url': result_image_url,
                 'character_image_url': character_image_url,
                 'timing': timing
             }
