@@ -8,6 +8,7 @@ from typing import Optional
 from supabase import create_client, Client
 import random
 import uuid
+import tempfile
 
 load_dotenv()
 
@@ -112,47 +113,18 @@ class ImageService:
             print(f"[DEBUG] URL 다운로드 완료: {len(response.content)} bytes")
             return response.content
 
-    def create_file(self, file_content: bytes, filename: str) -> str:
-        import tempfile
-        filename = filename.split('?')[0]
-        print(f"[DEBUG] create_file 호출: filename={filename}, size={len(file_content)} bytes")
-        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(filename)[1]) as temp_file:
-            temp_file.write(file_content)
-            temp_file_path = temp_file.name
-        print(f"[DEBUG] 임시 파일 생성: {temp_file_path}")
-        try:
-            with open(temp_file_path, "rb") as f:
-                print(f"[DEBUG] Files API 호출 시작")
-                result = self.client.files.create(
-                    file=f,
-                    purpose="vision",
-                )
-                print(f"[DEBUG] Files API 호출 완료: file_id={result.id}")
-                return result.id
-        finally:
-            os.unlink(temp_file_path)
-            print(f"[DEBUG] 임시 파일 삭제 완료")
-
     async def edit_images(self, image1_url: str, image2_url: str, custom_prompt: Optional[str] = None) -> Optional[str]:
-        """두 이미지를 1단계로 합성 (gpt-image-1, 속도 최적화)"""
+        """두 이미지를 합성 (gpt-image-1, images.edit API)"""
         try:
             print(f"[DEBUG] 이미지 다운로드 시작")
             image1_content = await self.download_image(image1_url)
             image2_content = await self.download_image(image2_url)
 
-            image1_filename = image1_url.split('/')[-1].split('?')[0] or "face.jpg"
-            image2_filename = image2_url.split('/')[-1].split('?')[0] or "character.jpg"
-
-            print(f"[DEBUG] 파일 업로드 시작")
-            file_id1 = self.create_file(image1_content, image1_filename)
-            file_id2 = self.create_file(image2_content, image2_filename)
-
             pose_instruction = ""
             if custom_prompt and custom_prompt.strip():
                 pose_instruction = f"\n\n**포즈/상황:** {custom_prompt.strip()}"
 
-            prompt = f"""
-첫 번째 이미지(사람 얼굴)와 두 번째 이미지(조선 수군 캐릭터)를 합성하여 캐리커처를 만들어주세요.
+            prompt = f"""첫 번째 이미지(사람 얼굴)와 두 번째 이미지(조선 수군 캐릭터)를 합성하여 캐리커처를 만들어주세요.
 
 **얼굴 이미지에서 반영:**
 - 눈, 코, 입, 얼굴형을 캐리커처 스타일로 과장하여 표현
@@ -167,53 +139,37 @@ class ImageService:
 **공통 규칙:**
 - 전신이 모두 나오게 그릴 것
 - 귀엽고 과장된 캐리커처 만화 스타일
-- 깔끔한 단색 배경{pose_instruction}
-"""
+- 깔끔한 단색 배경{pose_instruction}"""
 
-            print(f"[DEBUG] OpenAI API 1회 호출 시작")
-            response = self.client.responses.create(
-                model="gpt-image-1.5",
-                input=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "input_text", "text": prompt},
-                            {"type": "input_image", "file_id": file_id1},
-                            {"type": "input_image", "file_id": file_id2},
-                        ],
-                    }
-                ],
-                tools=[{"type": "image_generation", "quality": "medium"}],
-            )
-            print(f"[DEBUG] API 호출 완료")
-            print(f"[DEBUG] 응답 타입들: {[o.type for o in response.output]}")
+            print(f"[DEBUG] OpenAI images.edit API 호출 시작")
 
-            # 1순위: image_generation_call 타입에서 추출
-            image_generation_calls = [
-                output for output in response.output
-                if output.type == "image_generation_call"
-            ]
-            if image_generation_calls:
-                print(f"[DEBUG] image_generation_call 타입에서 이미지 추출 성공")
-                return image_generation_calls[0].result
+            # 임시 파일로 저장 후 API 호출
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as f1:
+                f1.write(image1_content)
+                path1 = f1.name
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as f2:
+                f2.write(image2_content)
+                path2 = f2.name
 
-            # 2순위: message 타입에서 이미지 추출 시도
-            for output in response.output:
-                print(f"[DEBUG] output 상세: {output.type} - {str(output)[:300]}")
-                if output.type == "message":
-                    for content_item in output.content:
-                        if hasattr(content_item, "type") and content_item.type == "image_generation_call":
-                            print(f"[DEBUG] message 안에서 image_generation_call 발견")
-                            return content_item.result
-                        if hasattr(content_item, "image_url") and content_item.image_url:
-                            print(f"[DEBUG] message 안에서 image_url 발견")
-                            return content_item.image_url
-                        if hasattr(content_item, "result") and content_item.result:
-                            print(f"[DEBUG] message 안에서 result 발견")
-                            return content_item.result
-
-            print(f"[ERROR] 이미지 생성 결과 없음. 전체 응답: {str(response.output)[:500]}")
-            return None
+            try:
+                with open(path1, "rb") as img1, open(path2, "rb") as img2:
+                    response = self.client.images.edit(
+                        model="gpt-image-1",
+                        image=[img1, img2],
+                        prompt=prompt,
+                        n=1,
+                        size="1024x1024",
+                    )
+                print(f"[DEBUG] API 호출 완료")
+                image_b64 = response.data[0].b64_json
+                if image_b64:
+                    print(f"[DEBUG] 이미지 추출 성공 (base64)")
+                    return image_b64
+                print(f"[ERROR] 이미지 생성 결과 없음")
+                return None
+            finally:
+                os.unlink(path1)
+                os.unlink(path2)
 
         except Exception as e:
             print(f"[ERROR] 이미지 처리 오류: {str(e)}")
@@ -222,12 +178,6 @@ class ImageService:
             return None
 
     async def cartoonize_with_character(self, image_url: str, character_id: str, custom_prompt: Optional[str] = None):
-        """
-        캐릭터 이미지 합성 함수
-        1. character_id로 캐릭터 이미지 URL 가져오기
-        2. edit_images 함수로 이미지 합성
-        3. Supabase 저장 없이 OpenAI URL 바로 반환 (용량 절감)
-        """
         import time
 
         timing = {
@@ -280,7 +230,7 @@ class ImageService:
                 }
 
             print(f"[DEBUG] 2단계 완료 (소요시간: {total_generation_time}초)")
-            print(f"[DEBUG] 결과 이미지 URL 시작 부분: {result_image_url[:100]}...")
+            print(f"[DEBUG] 결과 이미지 URL 시작 부분: {str(result_image_url)[:100]}...")
 
             timing['total_time'] = round(time.time() - start_time, 2)
             print(f"[DEBUG] 전체 완료! 총 소요시간: {timing['total_time']}초")
