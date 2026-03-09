@@ -215,17 +215,27 @@ class ImageService:
             )
             print(f"[DEBUG] API 호출 완료")
 
+            # image_generation_call 타입 먼저 확인
             image_generation_calls = [
                 output for output in response.output
                 if output.type == "image_generation_call"
             ]
 
-            if not image_generation_calls:
-                print(f"[ERROR] 이미지 생성 결과 없음")
-                return None
+            if image_generation_calls:
+                return image_generation_calls[0].result
 
-            return image_generation_calls[0].result
+            # message 타입에서 이미지 추출 시도
+            for output in response.output:
+                print(f"[DEBUG] output 타입: {output.type}, 내용: {str(output)[:200]}")
+                if output.type == "message":
+                    for content in output.content:
+                        if hasattr(content, 'type') and content.type == "image_generation_call":
+                            return content.result
+                        if hasattr(content, 'image_url'):
+                            return content.image_url
 
+            print(f"[ERROR] 이미지 생성 결과 없음. 전체 응답: {str(response.output)[:500]}")
+            return None
         except Exception as e:
             print(f"[ERROR] 이미지 처리 오류: {str(e)}")
             import traceback
