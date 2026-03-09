@@ -240,7 +240,7 @@ def process_cartoonize_background_sync(
         ))
         
         if result['success']:
-            print(f"[Background Job {job_id}] 이미지 생성 완료: {result['result_image_url']}")
+            print(f"[Background Job {job_id}] 이미지 생성 완료 (base64 수신)")
             
             # regeneration_count에 따라 적절한 컴럼 선택
             # count = 2: result (초기 생성)
@@ -260,8 +260,20 @@ def process_cartoonize_background_sync(
             # Supabase DB 업데이트 (적절한 컴럼에 업데이트)
             if image_service.supabase:
                 try:
+                    # ✅ 수정: base64 → Supabase Storage 업로드 → URL을 DB에 저장
+                    image_b64 = result['result_image_url']
+                    image_bytes = base64.b64decode(image_b64)
+                    file_name = f"cartoon_results/{job_id}.png"
+                    print(f"[Background Job {job_id}] Supabase Storage 업로드 시작: {file_name}")
+                    public_url = image_service.upload_image_to_supabase(image_bytes, file_name)
+                    
+                    if not public_url:
+                        raise Exception("Supabase Storage 업로드 실패 - URL 반환 없음")
+                    
+                    print(f"[Background Job {job_id}] Storage 업로드 완료: {public_url}")
+                    
                     update_result = image_service.supabase.table("image").update({
-                        target_column: result['result_image_url']
+                        target_column: public_url
                     }).eq("job_id", job_id).execute()
                     
                     print(f"[Background Job {job_id}] DB 업데이트 완료 (column: {target_column})")
