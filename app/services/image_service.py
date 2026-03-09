@@ -199,148 +199,85 @@ class ImageService:
             print(f"[DEBUG] 임시 파일 삭제 완료")
     
     async def edit_images(self, image1_url: str, image2_url: str, custom_prompt: Optional[str] = None) -> Optional[str]:
-        """두 이미지를 2단계로 합성하여 캐리커처 생성
-        1단계: 얼굴 합성 (첫 번째 이미지 얼굴 + 두 번째 이미지 화풍)
-        2단계: 포즈 변경 (1단계 결과물 + custom_prompt 포즈)
-        """
+        """두 이미지를 1단계로 합성 (gpt-image-1.5, 속도 최적화)"""
         try:
-            # 이미지 다운로드 및 파일 업로드
-            print(f"[DEBUG] 이미지 다운로드 시작: {image1_url}, {image2_url}")
+            print(f"[DEBUG] 이미지 다운로드 시작")
             image1_content = await self.download_image(image1_url)
             image2_content = await self.download_image(image2_url)
-            print(f"[DEBUG] 이미지 다운로드 완료. 크기: {len(image1_content)} bytes, {len(image2_content)} bytes")
-            
-            # OpenAI Files API에 업로드
-            image1_filename = image1_url.split('/')[-1] or "image1.jpg"
-            image2_filename = image2_url.split('/')[-1] or "image2.jpg"
-            
-            print(f"[DEBUG] 파일 업로드 시작: {image1_filename}, {image2_filename}")
+
+            image1_filename = image1_url.split('/')[-1].split('?')[0] or "face.jpg"
+            image2_filename = image2_url.split('/')[-1].split('?')[0] or "character.jpg"
+
+            print(f"[DEBUG] 파일 업로드 시작")
             file_id1 = self.create_file(image1_content, image1_filename)
             file_id2 = self.create_file(image2_content, image2_filename)
-            print(f"[DEBUG] 파일 업로드 완료. file_id1={file_id1}, file_id2={file_id2}")
 
-            # === 1단계: 얼굴 + 화풍 합성 ===
-            step1_prompt = """
-첫 번째 이미지의 얼굴을 참고하여, 두 번째 이미지의 화풍으로 캐리커처를 생성하세요:
+            pose_instruction = ""
+            if custom_prompt and custom_prompt.strip():
+                pose_instruction = f"\n\n**포즈/상황:** {custom_prompt.strip()}"
 
-**첫 번째 이미지에서 참고:**
-- 얼굴 특징(눈, 코, 입, 얼굴형) 정확하게 참고
-- 헤어스타일과 색상 참고
-- 눈을 크게 묘사하면서 원본 특징 유지
+            prompt = f"""
+첫 번째 이미지(사람 얼굴)와 두 번째 이미지(조선 수군 캐릭터)를 합성하여 캐리커처를 만들어주세요.
 
-**두 번째 이미지에서 참고:**
-- 몸통의 그림 화풍과 스타일 참고
-- 단순한 캐릭터 스타일
-- 굵고 부드러운 선
-- 의상 스타일
+**얼굴 이미지에서 반영:**
+- 눈, 코, 입, 얼굴형을 캐리커처 스타일로 과장하여 표현
+- 헤어스타일과 색상 반영
+- 안경 착용 여부 반영
 
-**전체 적용:**
-- 날씬한 얼굴형
-- 귀여운 만화 스타일
-- 자연스러운 표정
-- 전신이 다 나오게 그려줘
+**캐릭터 이미지에서 반영:**
+- 의상, 갑옷, 무기 등 캐릭터 복장 그대로 유지
+- 그림 화풍(선 굵기, 색감, 채색 스타일) 그대로 유지
+- 조선시대 수군 일러스트 스타일 유지
+
+**공통 규칙:**
+- 전신이 모두 나오게 그릴 것
+- 귀엽고 과장된 캐리커처 만화 스타일
+- 깔끔한 단색 배경{pose_instruction}
 """
 
-            # 1단계 API 호출 (File ID 사용)
-            print(f"[DEBUG] 1단계 API 호출 시작")
-            print(f"[DEBUG] Request payload: model=gpt-4.1, file_ids=[{file_id1}, {file_id2}]")
-            response1 = self.client.responses.create(
-                model="gpt-4.1",
+            print(f"[DEBUG] gpt-image-1.5 API 호출 시작 (단일 호출)")
+            response = self.client.responses.create(
+                model="gpt-image-1.5",
                 input=[
                     {
                         "role": "user",
                         "content": [
-                            {"type": "input_text", "text": step1_prompt},
-                            {
-                                "type": "input_image",
-                                "file_id": file_id1,
-                            },
-                            {
-                                "type": "input_image",
-                                "file_id": file_id2,
-                            }
+                            {"type": "input_text", "text": prompt},
+                            {"type": "input_image", "file_id": file_id1},
+                            {"type": "input_image", "file_id": file_id2},
                         ],
                     }
                 ],
-                tools=[{"type": "image_generation"}],
+                tools=[{"type": "image_generation", "quality": "medium"}],
             )
-            print(f"[DEBUG] 1단계 API 호출 완료")
+            print(f"[DEBUG] API 호출 완료")
 
-            # 1단계 결과 추출
             image_generation_calls = [
-                output
-                for output in response1.output
+                output for output in response.output
                 if output.type == "image_generation_call"
             ]
 
             if not image_generation_calls:
-                print(f"[ERROR] 1단계 결과에서 image_generation_call을 찾을 수 없음")
+                print(f"[ERROR] 이미지 생성 결과 없음")
                 return None
 
-            step1_image_url = image_generation_calls[0].result
-            print(f"[DEBUG] 1단계 결과 URL 길이: {len(step1_image_url)} chars")
-            print(f"[DEBUG] 1단계 결과 URL 시작 부분: {step1_image_url[:100]}...")
-
-            # custom_prompt가 없으면 1단계 결과 그대로 반환
-            if not custom_prompt or not custom_prompt.strip():
-                return step1_image_url
-
-            # === 2단계: 포즈 변경 ===
-            # 1단계 결과 이미지 다운로드 및 파일 업로드
-            step1_content = await self.download_image(step1_image_url)
-            file_id_step1 = self.create_file(step1_content, "step1_result.png")
-            
-            step2_prompt = f"""
-이미지의 화풍과 얼굴, 몸통, 의상을 그대로 유지하면서 포즈만 변경해주세요:
-
-**절대 변경하지 말 것:**
-- 그림 화풍 (선 굵기, 색감, 채색 스타일)
-- 얼굴 특징
-- 헤어스타일
-- 의상 디자인과 색상
-- 체형과 몸의 형상
-
-**변경할 것:**
-- 포즈와 자세만 다음과 같이 변경: {custom_prompt.strip()}
-- 전신이 다 나오게 그려줘
-"""
-
-            # 2단계 API 호출 (File ID 사용)
-            response2 = self.client.responses.create(
-                model="gpt-4.1",
-                input=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "input_text", "text": step2_prompt},
-                            {
-                                "type": "input_image",
-                                "file_id": file_id_step1,
-                            }
-                        ],
-                    }
-                ],
-                tools=[{"type": "image_generation"}],
-            )
-
-            # 2단계 결과 추출
-            image_generation_calls2 = [
-                output
-                for output in response2.output
-                if output.type == "image_generation_call"
-            ]
-
-            if image_generation_calls2:
-                return image_generation_calls2[0].result
-            else:
-                return step1_image_url  # 2단계 실패시 1단계 결과 반환
+            return image_generation_calls[0].result
 
         except Exception as e:
-            print(f"[ERROR] 이미지 처리 중 오류 발생: {str(e)}")
-            print(f"[ERROR] 오류 타입: {type(e).__name__}")
+            print(f"[ERROR] 이미지 처리 오류: {str(e)}")
             import traceback
-            print(f"[ERROR] 상세 스택:\n{traceback.format_exc()}")
+            print(traceback.format_exc())
             return None
+```
+
+---
+
+**⑤ 붙여넣기 후 344번 줄이 빈 줄, 345번 줄이 `async def cartoonize_with_character` 이면 정상입니다.**
+
+**⑥ 화면 오른쪽 위 초록색 "Commit changes" 버튼 클릭**
+```
+Commit message 입력:
+feat: gpt-image-1.5 모델 교체 및 속도 개선 (2단계→1단계)
 
     async def cartoonize_with_character(self, image_url: str, character_id: str, custom_prompt: Optional[str] = None):
         """
