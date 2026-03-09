@@ -134,7 +134,7 @@ class ImageService:
             print(f"[DEBUG] 임시 파일 삭제 완료")
 
     async def edit_images(self, image1_url: str, image2_url: str, custom_prompt: Optional[str] = None) -> Optional[str]:
-        """두 이미지를 1단계로 합성 (gpt-image-1.5, 속도 최적화)"""
+        """두 이미지를 1단계로 합성 (gpt-image-1, 속도 최적화)"""
         try:
             print(f"[DEBUG] 이미지 다운로드 시작")
             image1_content = await self.download_image(image1_url)
