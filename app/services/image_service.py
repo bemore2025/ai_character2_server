@@ -17,41 +17,31 @@ class ImageService:
         self.supabase = self._get_supabase_client()
 
     def _get_supabase_client(self) -> Optional[Client]:
-        """Supabase 클라이언트를 설정합니다."""
         try:
             url = os.getenv("SUPABASE_URL")
             key = os.getenv("SUPABASE_ACCESS_KEY")
-
             if not url or not key:
                 print("[WARNING] SUPABASE_URL 또는 SUPABASE_ACCESS_KEY 환경변수가 설정되지 않았습니다.")
                 return None
-
             return create_client(url, key)
         except Exception as e:
             print(f"[ERROR] Supabase 클라이언트 초기화 실패: {e}")
             return None
 
     def get_random_character_image(self, character_id: str) -> Optional[str]:
-        """character_id를 이용해 character 테이블에서 picture_cartoon 중 랜덤한 이미지 URL을 반환합니다."""
         try:
             if not self.supabase:
                 print("[ERROR] Supabase 클라이언트가 초기화되지 않았습니다.")
                 return None
-
             response = self.supabase.table("character").select("picture_cartoon").eq("id", character_id).execute()
-
             if not response.data:
                 print(f"[ERROR] 캐릭터 ID {character_id}를 찾을 수 없습니다.")
                 return None
-
             picture_cartoon = response.data[0].get("picture_cartoon")
-
             if not picture_cartoon or not isinstance(picture_cartoon, list) or len(picture_cartoon) == 0:
                 print(f"[ERROR] 캐릭터 ID {character_id}의 picture_cartoon이 비어있거나 올바르지 않습니다.")
                 return None
-
             random_item = random.choice(picture_cartoon)
-
             if isinstance(random_item, dict) and 'url' in random_item:
                 return random_item['url']
             elif isinstance(random_item, str):
@@ -59,31 +49,24 @@ class ImageService:
             else:
                 print(f"[ERROR] 예상치 못한 데이터 형태: {type(random_item)}, 값: {random_item}")
                 return None
-
         except Exception as e:
             print(f"[ERROR] 캐릭터 이미지 가져오기 중 오류 발생: {str(e)}")
             return None
 
     def upload_image_to_supabase(self, image_data: bytes, file_name: str = None) -> Optional[str]:
-        """이미지 데이터를 Supabase 스토리지에 업로드하고 공개 URL을 반환합니다."""
         try:
             if not self.supabase:
                 print("[ERROR] Supabase 클라이언트가 초기화되지 않았습니다.")
                 return None
-
             if not file_name:
                 file_name = f"cartoon_{uuid.uuid4().hex}.png"
-
             print(f"[DEBUG] Supabase에 이미지 업로드 중: {file_name}")
-
             bucket_name = "images"
-
             upload_response = self.supabase.storage.from_(bucket_name).upload(
                 path=file_name,
                 file=image_data,
                 file_options={"content-type": "image/png"}
             )
-
             if hasattr(upload_response, 'error') and upload_response.error:
                 print(f"[ERROR] 업로드 실패: {upload_response.error}")
                 return None
@@ -92,15 +75,12 @@ class ImageService:
                 public_url = self.supabase.storage.from_(bucket_name).get_public_url(file_name)
                 print(f"[DEBUG] 공개 URL: {public_url}")
                 return public_url
-
         except Exception as e:
             print(f"[ERROR] Supabase 업로드 중 오류 발생: {str(e)}")
             return None
 
     async def download_image(self, image_url: str) -> bytes:
-        """URL, data URL, 또는 순수 base64 문자열을 이미지 바이트로 변환"""
         s = (image_url or "").strip()
-
         if s.startswith('data:'):
             print(f"[DEBUG] Base64 data URL 감지, 디코딩 시작")
             base64_data = s.split(',', 1)[1] if ',' in s else s
@@ -111,7 +91,6 @@ class ImageService:
                 return decoded
             except Exception as _:
                 print(f"[DEBUG] Base64 data URL 디코딩 실패, 다른 방식 시도")
-
         if '://' not in s:
             s_clean = s.replace('\n', '').replace('\r', '')
             if len(s_clean) > 1000 and re.fullmatch(r'[A-Za-z0-9+/=_-]+', s_clean) is not None:
@@ -126,7 +105,6 @@ class ImageService:
                     return decoded
                 except Exception as _:
                     print(f"[DEBUG] 순수 base64 디코딩 실패, URL로 처리 시도")
-
         print(f"[DEBUG] 일반 URL 다운로드 시작: {s}")
         async with httpx.AsyncClient() as client:
             response = await client.get(s, timeout=30.0)
@@ -135,19 +113,13 @@ class ImageService:
             return response.content
 
     def create_file(self, file_content: bytes, filename: str) -> str:
-        """OpenAI에 파일 업로드하고 file_id 반환"""
         import tempfile
-
         filename = filename.split('?')[0]
-
         print(f"[DEBUG] create_file 호출: filename={filename}, size={len(file_content)} bytes")
-
         with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(filename)[1]) as temp_file:
             temp_file.write(file_content)
             temp_file_path = temp_file.name
-
         print(f"[DEBUG] 임시 파일 생성: {temp_file_path}")
-
         try:
             with open(temp_file_path, "rb") as f:
                 print(f"[DEBUG] Files API 호출 시작")
@@ -198,7 +170,7 @@ class ImageService:
 - 깔끔한 단색 배경{pose_instruction}
 """
 
-            print(f"[DEBUG] gpt-image-1.5 API 호출 시작 (단일 호출)")
+            print(f"[DEBUG] OpenAI API 1회 호출 시작")
             response = self.client.responses.create(
                 model="gpt-image-1.5",
                 input=[
@@ -214,28 +186,35 @@ class ImageService:
                 tools=[{"type": "image_generation", "quality": "medium"}],
             )
             print(f"[DEBUG] API 호출 완료")
+            print(f"[DEBUG] 응답 타입들: {[o.type for o in response.output]}")
 
-            # image_generation_call 타입 먼저 확인
+            # 1순위: image_generation_call 타입에서 추출
             image_generation_calls = [
                 output for output in response.output
                 if output.type == "image_generation_call"
             ]
-
             if image_generation_calls:
+                print(f"[DEBUG] image_generation_call 타입에서 이미지 추출 성공")
                 return image_generation_calls[0].result
 
-            # message 타입에서 이미지 추출 시도
+            # 2순위: message 타입에서 이미지 추출 시도
             for output in response.output:
-                print(f"[DEBUG] output 타입: {output.type}, 내용: {str(output)[:200]}")
+                print(f"[DEBUG] output 상세: {output.type} - {str(output)[:300]}")
                 if output.type == "message":
-                    for content in output.content:
-                        if hasattr(content, 'type') and content.type == "image_generation_call":
-                            return content.result
-                        if hasattr(content, 'image_url'):
-                            return content.image_url
+                    for content_item in output.content:
+                        if hasattr(content_item, "type") and content_item.type == "image_generation_call":
+                            print(f"[DEBUG] message 안에서 image_generation_call 발견")
+                            return content_item.result
+                        if hasattr(content_item, "image_url") and content_item.image_url:
+                            print(f"[DEBUG] message 안에서 image_url 발견")
+                            return content_item.image_url
+                        if hasattr(content_item, "result") and content_item.result:
+                            print(f"[DEBUG] message 안에서 result 발견")
+                            return content_item.result
 
             print(f"[ERROR] 이미지 생성 결과 없음. 전체 응답: {str(response.output)[:500]}")
             return None
+
         except Exception as e:
             print(f"[ERROR] 이미지 처리 오류: {str(e)}")
             import traceback
@@ -262,7 +241,6 @@ class ImageService:
         start_time = time.time()
 
         try:
-            # 1단계: 캐릭터 이미지 URL 가져오기
             step_start = time.time()
             print(f"[DEBUG] 1단계: 캐릭터 ID {character_id}로 이미지 URL 가져오는 중...")
             character_image_url = self.get_random_character_image(character_id)
@@ -279,7 +257,6 @@ class ImageService:
 
             print(f"[DEBUG] 1단계 완료 (소요시간: {timing['character_image_fetch']}초)")
 
-            # 2단계: 이미지 합성
             step_start = time.time()
             print(f"[DEBUG] 2단계: 이미지 합성 시작 (image1={image_url}, image2={character_image_url})")
             result_image_url = await self.edit_images(
@@ -305,7 +282,6 @@ class ImageService:
             print(f"[DEBUG] 2단계 완료 (소요시간: {total_generation_time}초)")
             print(f"[DEBUG] 결과 이미지 URL 시작 부분: {result_image_url[:100]}...")
 
-            # Supabase 저장 없이 OpenAI URL 바로 반환 (용량 절감)
             timing['total_time'] = round(time.time() - start_time, 2)
             print(f"[DEBUG] 전체 완료! 총 소요시간: {timing['total_time']}초")
 
