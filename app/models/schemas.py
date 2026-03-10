@@ -47,3 +47,9 @@ class CartoonizeResponse(BaseModel):
     timing: Optional[TimingInfo] = None
     job_id: Optional[str] = None
     error: Optional[str] = None
+
+
+class ImagePreviewResponse(BaseModel):
+    success: bool
+    image_url: Optional[str] = None
+    message: str
