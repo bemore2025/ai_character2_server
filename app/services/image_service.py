@@ -107,8 +107,8 @@ class ImageService:
                 except Exception as _:
                     print(f"[DEBUG] 순수 base64 디코딩 실패, URL로 처리 시도")
         print(f"[DEBUG] 일반 URL 다운로드 시작: {s}")
-        async with httpx.AsyncClient() as client:
-            response = await client.get(s, timeout=30.0)
+                async with httpx.AsyncClient(verify=False) as client:
+            response = await client.ge(s, timeout=30.0)
             response.raise_for_status()
             print(f"[DEBUG] URL 다운로드 완료: {len(response.content)} bytes")
             return response.content
