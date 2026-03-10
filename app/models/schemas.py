@@ -12,14 +12,14 @@ class ImageEditResponse(BaseModel):
     preview_url: Optional[str] = None
     message: str
 
-class ImagePreviewResponse(BaseModel):
+from pydantic import BaseModel
     success: bool
     image_url: Optional[str] = None
     message: str
 
 # target.py와 동일한 구조
 class CartoonizeRequest(BaseModel):
-    image_url: HttpUrl  # 첫 번째 이미지 (얼굴 이미지)
+        image_url: str  # 첫 번째 이미지 (얼굴 이미지, URL 또는 base64)
     character_id: str  # 캐릭터 ID (두 번째 이미지를 가져오기 위한 ID)
     custom_prompt: Optional[str] = None  # 포즈 묘사
     job_id: Optional[str] = None
