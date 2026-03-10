@@ -107,8 +107,8 @@ class ImageService:
                 except Exception as _:
                     print(f"[DEBUG] 순수 base64 디코딩 실패, URL로 처리 시도")
         print(f"[DEBUG] 일반 URL 다운로드 시작: {s}")
-                async with httpx.AsyncClient(verify=False) as client:
-            response = await client.ge(s, timeout=30.0)
+        async with httpx.AsyncClient(verify=False) as client:
+            response = await client.get(s, timeout=30.0)
             response.raise_for_status()
             print(f"[DEBUG] URL 다운로드 완료: {len(response.content)} bytes")
             return response.content
@@ -129,13 +129,9 @@ class ImageService:
 **얼굴 이미지에서 반영:**
 - 눈, 코, 입, 얼굴형을 캐리커처 스타일로 과장하여 표현
 - 헤어스타일과 색상 반영
-- 사용자가 실제로 착용한 액세서리만 반영할 것
 - 사용자가 안경을 착용한 경우에만 동일한 안경테 모양과 색상을 그릴 것
 - 사용자가 안경을 착용하지 않은 경우 절대로 안경을 추가하지 말 것
-- 둥근 테, 사각 테, 반무테, 선글라스, 고글, 렌즈 반사 표현을 절대로 추가하지 말 것
-- 눈썹선, 머리카락선, 얼굴 윤곽선을 안경테처럼 해석하지 말 것
-- 입력 얼굴 사진에 없는 액세서리는 절대로 임의 추가하지 말 것
-- 귀걸이는 실제 사진에 보이는 경우만 반영할 것
+- 눈썹선, 눈꺼풀선, 머리카락선, 얼굴 윤곽선을 안경테처럼 해석하지 말 것
 
 **캐릭터 이미지에서 반영:**
 - 의상, 갑옷, 무기 등 캐릭터 복장 그대로 유지
@@ -146,7 +142,8 @@ class ImageService:
 - 전신이 모두 나오게 그릴 것
 - 얼굴 사진에 없는 소품이나 액세서리를 임의로 생성하지 말 것
 - 귀엽고 과장된 캐리커처 만화 스타일
-- 깔끔한 단색 배경{pose_instruction}"""
+- 캐릭터가 화면 중심에 위치하도록 구성
+- 프롬프트에 어울리는 배경  {pose_instruction}"""
 
             print(f"[DEBUG] OpenAI images.edit API 호출 시작")
 
@@ -165,7 +162,7 @@ class ImageService:
                         image=[img1, img2],
                         prompt=prompt,
                         n=1,
-                        size="1024x1024",
+                        size="768x768",
                     )
                 print(f"[DEBUG] API 호출 완료")
                 image_b64 = response.data[0].b64_json
