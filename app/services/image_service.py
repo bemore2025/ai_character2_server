@@ -140,7 +140,7 @@ class ImageService:
 - 얼굴 사진에 없는 소품이나 액세서리는 생성하지 말 것
 - 입력된 장소나 상황이 있다면 해당 장소가 보이는 배경을 생성할 것
 {pose_instruction}
-
+"""
             print(f"[DEBUG] OpenAI images.edit API 호출 시작")
 
             # 임시 파일로 저장 후 API 호출
