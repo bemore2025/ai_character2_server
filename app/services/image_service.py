@@ -195,7 +195,7 @@ class ImageService:
             try:
                 with open(path1, "rb") as img1, open(path2, "rb") as img2:
                     response = self.client.images.edit(
-                        model="dall-e-2",
+                        model="gpt-image-1",
                         image=[img1, img2],
                         prompt=prompt,
                         n=1,
