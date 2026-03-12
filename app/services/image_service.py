@@ -203,7 +203,7 @@ class ImageService:
                         image=[img1, img2],
                         prompt=prompt,
                         n=1,
-                        size="512x512",
+                        size="1024x1024",
                     )
 
                 print("[DEBUG] API 호출 완료")
