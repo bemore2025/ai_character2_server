@@ -176,7 +176,7 @@ class ImageService:
                         image=[img1, img2],
                         prompt=prompt,
                         n=1,
-                        size="1024x1024",
+                        size="1024x1792",
                     )
                 print("[DEBUG] OpenAI 이미지 생성 완료")
 
